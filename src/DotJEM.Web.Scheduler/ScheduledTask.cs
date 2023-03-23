@@ -4,7 +4,6 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using DotJEM.ObservableExtensions.InfoStreams;
-using DotJEM.TaskScheduler;
 using DotJEM.Web.Scheduler.Abstractions;
 using DotJEM.Web.Scheduler.Triggers;
 

@@ -1,6 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
 using DotJEM.ObservableExtensions.InfoStreams;
-using DotJEM.TaskScheduler;
 
 namespace DotJEM.Web.Scheduler;
 

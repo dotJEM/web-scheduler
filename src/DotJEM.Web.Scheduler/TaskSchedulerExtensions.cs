@@ -1,5 +1,4 @@
 ﻿using System;
-using DotJEM.TaskScheduler.Triggers;
 using DotJEM.Web.Scheduler.Triggers;
 using NCrontab;
 
