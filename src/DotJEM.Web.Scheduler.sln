@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.4.33122.133
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotJEM.Web.Scheduler.Test", "DotJEM.Web.Scheduler.Test\DotJEM.Web.Scheduler.Test.csproj", "{FC6B24FE-48AF-4DD3-90A5-D04A53EFD2CB}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotJEM.Web.Scheduler", "DotJEM.Web.Scheduler\DotJEM.Web.Scheduler.csproj", "{84B97F58-4FF5-4A68-B5BD-F8AC5D84383D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FC6B24FE-48AF-4DD3-90A5-D04A53EFD2CB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FC6B24FE-48AF-4DD3-90A5-D04A53EFD2CB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FC6B24FE-48AF-4DD3-90A5-D04A53EFD2CB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FC6B24FE-48AF-4DD3-90A5-D04A53EFD2CB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{84B97F58-4FF5-4A68-B5BD-F8AC5D84383D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{84B97F58-4FF5-4A68-B5BD-F8AC5D84383D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{84B97F58-4FF5-4A68-B5BD-F8AC5D84383D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{84B97F58-4FF5-4A68-B5BD-F8AC5D84383D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3FBB7E50-C388-4CEB-8002-D76AC76EB9F4}
+	EndGlobalSection
+EndGlobal
