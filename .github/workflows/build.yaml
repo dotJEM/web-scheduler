@@ -62,3 +62,4 @@ jobs:
     - name: Publish
       working-directory: ./src
       run: dotnet nuget push **/*.nupkg -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate 
+      if: github.event.name == 'push'
