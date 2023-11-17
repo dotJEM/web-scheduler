@@ -14,7 +14,7 @@ public class ScheduledTask : Disposable, IScheduledTask
     public event EventHandler<EventArgs> TaskDisposed;
 
     private readonly object padlock = new();
-    private readonly Action<bool> callback;
+    private readonly Func<bool,Task> asyncCallback;
     private readonly AutoResetEvent handle = new(false);
     private readonly ActivitySource activitySource;
     private readonly IThreadPool pool;
@@ -30,20 +30,20 @@ public class ScheduledTask : Disposable, IScheduledTask
     public Guid Id { get; }
     public string Name { get; }
 
-    public ScheduledTask(string name, Action<bool> callback, ITrigger trigger)
-        : this(Guid.NewGuid(), name, callback, new ThreadPoolProxy(), trigger) { }
+    public ScheduledTask(string name, Func<bool, Task> asyncCallback, ITrigger trigger)
+        : this(Guid.NewGuid(), name, asyncCallback, new ThreadPoolProxy(), trigger) { }
 
-    public ScheduledTask(Guid id, string name, Action<bool> callback, ITrigger trigger)
-        : this(id, name, callback, new ThreadPoolProxy(), trigger) { }
+    public ScheduledTask(Guid id, string name, Func<bool, Task> asyncCallback, ITrigger trigger)
+        : this(id, name, asyncCallback, new ThreadPoolProxy(), trigger) { }
 
-    public ScheduledTask(string name, Action<bool> callback, IThreadPool pool, ITrigger trigger)
-        : this(Guid.NewGuid(), name, callback, pool, trigger) { }
+    public ScheduledTask(string name, Func<bool, Task> asyncCallback, IThreadPool pool, ITrigger trigger)
+        : this(Guid.NewGuid(), name, asyncCallback, pool, trigger) { }
 
-    public ScheduledTask(Guid id, string name, Action<bool> callback, IThreadPool pool, ITrigger trigger)
+    public ScheduledTask(Guid id, string name, Func<bool, Task> asyncCallback, IThreadPool pool, ITrigger trigger)
     {
         Id = id;
         Name = name;
-        this.callback = callback;
+        this.asyncCallback = asyncCallback;
         this.pool = pool;
         this.trigger = trigger;
         activitySource = ActivitySources.Create<ScheduledTask>();
@@ -78,11 +78,11 @@ public class ScheduledTask : Disposable, IScheduledTask
         if (Disposed)
             return this;
 
-        executing = pool.RegisterWaitForSingleObject(handle, (state, timedout) => ExecuteCallback(timedout), null, timeout, true);
+        executing = pool.RegisterWaitForSingleObject(handle, (_, didTimeOut) => ExecuteCallback(didTimeOut).FireAndForget(), null, timeout, true);
         return this;
     }
 
-    protected virtual bool ExecuteCallback(bool timedout)
+    protected async Task<bool> ExecuteCallback(bool didTimeOut)
     {
         if (Disposed)
             return false;
@@ -90,8 +90,7 @@ public class ScheduledTask : Disposable, IScheduledTask
         using Activity activity = activitySource.StartActivity(Name);
         try
         {
-            callback(!timedout);
-            activity?.SetTag(nameof(timedout), timedout);
+            await asyncCallback(!didTimeOut).ConfigureAwait(false);
             return true;
         }
         catch (Exception ex)
@@ -104,7 +103,6 @@ public class ScheduledTask : Disposable, IScheduledTask
         {
             if (trigger.TryGetNext(false, out TimeSpan value))
                 RegisterWait(value);
-
         }
     }
 
@@ -137,5 +135,19 @@ public class ScheduledTask : Disposable, IScheduledTask
     {
         pool.RegisterWaitForSingleObject(new AutoResetEvent(false), (_, _) => Signal(), null, delay, true);
         return this;
+    }
+}
+
+internal static class TaskExt
+{
+    public static void FireAndForget(this Task task)
+    {
+
+    }
+    public static Func<T, Task> ToAsync<T>(this Action<T> action)
+    {
+#pragma warning disable CS1998
+        return async arg => action(arg);
+#pragma warning restore CS1998
     }
 }
