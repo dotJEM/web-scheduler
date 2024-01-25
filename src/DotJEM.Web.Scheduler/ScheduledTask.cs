@@ -9,6 +9,9 @@ using DotJEM.Web.Scheduler.Triggers;
 
 namespace DotJEM.Web.Scheduler;
 
+/// <summary>
+/// Represents a unit of work that can be scheduled.
+/// </summary>
 public class ScheduledTask : Disposable, IScheduledTask
 {
     public event EventHandler<EventArgs> TaskDisposed;
@@ -22,47 +25,77 @@ public class ScheduledTask : Disposable, IScheduledTask
     private readonly IInfoStream<ScheduledTask> infoStream = new InfoStream<ScheduledTask>();
     private readonly TaskCompletionSource<int> completeCompletionSource;
 
-    private RegisteredWaitHandle executing;
+    private TaskCompletionSource<bool> executionCompletionSource;
+    private RegisteredWaitHandle nativeWaitHandle;
     private bool started = false;
+    private bool paused = false;
+    private bool executing = false;
 
+    /// <inheritdoc />
     public IInfoStream InfoStream => infoStream;
 
+    /// <inheritdoc />
     public Guid Id { get; }
+
+    /// <inheritdoc />
     public string Name { get; }
 
+    /// <summary>
+    /// Creates a new task with a given name, async target and trigger.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="asyncCallback"></param>
+    /// <param name="trigger"></param>
     public ScheduledTask(string name, Func<bool, Task> asyncCallback, ITrigger trigger)
         : this(Guid.NewGuid(), name, asyncCallback, new ThreadPoolProxy(), trigger) { }
 
+    /// <summary>
+    /// Creates a new task with a given id, name, async target and trigger.
+    /// </summary>
     public ScheduledTask(Guid id, string name, Func<bool, Task> asyncCallback, ITrigger trigger)
         : this(id, name, asyncCallback, new ThreadPoolProxy(), trigger) { }
 
+    /// <summary>
+    /// Creates a new task with a given name, async target, <see cref="IThreadPool"/> implementation and trigger.
+    /// </summary>
     public ScheduledTask(string name, Func<bool, Task> asyncCallback, IThreadPool pool, ITrigger trigger)
         : this(Guid.NewGuid(), name, asyncCallback, pool, trigger) { }
 
+    /// <summary>
+    /// Creates a new task with a given id, name, async target, <see cref="IThreadPool"/> implementation and trigger.
+    /// </summary>
     public ScheduledTask(Guid id, string name, Func<bool, Task> asyncCallback, IThreadPool pool, ITrigger trigger)
     {
         Id = id;
         Name = name;
+        activitySource = ActivitySources.Create<ScheduledTask>();
+        completeCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         this.asyncCallback = asyncCallback;
         this.pool = pool;
         this.trigger = trigger;
-        activitySource = ActivitySources.Create<ScheduledTask>();
-        completeCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    public IScheduledTask Start()
+    /// <inheritdoc />
+    public void Start()
     {
+        CheckDisposed();
+
         lock (padlock)
         {
-            if (started) return this;
+            if (started)
+                return;
+            
             started = true;
-
             if (trigger.TryGetNext(true, out TimeSpan value))
                 RegisterWait(value);
-            return this;
+
+            infoStream.WriteInfo($"Task {Name} was started.");
         }
     }
 
+    /// <summary>Gets an awaiter used to await this <see cref="ScheduledTask" />, the task is signaled when the task runs to completion and is disposed.</summary>
+    /// <returns>An awaiter instance.</returns>
     public TaskAwaiter<int> GetAwaiter() => completeCompletionSource.Task.GetAwaiter();
 
     /// <summary>
@@ -71,70 +104,142 @@ public class ScheduledTask : Disposable, IScheduledTask
     /// <remarks>
     /// If the task has been disposed this method dows nothing.
     /// </remarks>
-    /// <param name="timeout">Time untill next execution</param>
+    /// <param name="timeout">Time until next execution</param>
     /// <returns>self</returns>
     protected virtual IScheduledTask RegisterWait(TimeSpan timeout)
     {
         if (Disposed)
             return this;
 
-        executing = pool.RegisterWaitForSingleObject(handle, (_, didTimeOut) => ExecuteCallback(didTimeOut).FireAndForget(), null, timeout, true);
+        infoStream.WriteDebug($"Registering next execution for task {Name}.");
+        nativeWaitHandle = pool.RegisterWaitForSingleObject(handle, (_, didTimeOut) => ExecuteCallback(didTimeOut).FireAndForget(), null, timeout, true);
         return this;
     }
 
-    protected async Task<bool> ExecuteCallback(bool didTimeOut)
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="didTimeOut"></param>
+    /// <returns></returns>
+    protected virtual async Task ExecuteCallback(bool didTimeOut)
     {
         if (Disposed)
-            return false;
+            return;
 
+        lock (padlock)
+        {
+            if (paused)
+                return;
+
+            executing = true;
+            executionCompletionSource ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        bool success = true;
         using Activity activity = activitySource.StartActivity(Name);
         try
         {
+            infoStream.WriteDebug($"Executing task {Name}.");
             await asyncCallback(!didTimeOut).ConfigureAwait(false);
-            return true;
         }
         catch (Exception ex)
         {
             infoStream.WriteError($"Failed to execute task '{Name}'.", ex);
             activity?.SetTag("exception", ex);
-            return false;
+            success = false;
         }
         finally
         {
-            if (trigger.TryGetNext(false, out TimeSpan value))
+            if (!paused && trigger.TryGetNext(false, out TimeSpan value))
                 RegisterWait(value);
+
+            lock (padlock)
+            {
+                executing = false;
+                FinalizeCompletionSource(success);
+            }
         }
     }
 
-    /// <summary>
-    /// Marks the task for shutdown and signals any waiting tasks.
-    /// </summary>
-    /// <param name="disposing"></param>
+    /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
         if (Disposed)
             return;
 
         base.Dispose(disposing);
-        executing?.Unregister(null);
-        Signal();
+        nativeWaitHandle?.Unregister(null);
+        Signal().FireAndForget();
 
-        infoStream.WriteTaskCompleted($"Task '{Name}' completed.");
-
-        TaskDisposed?.Invoke(this, EventArgs.Empty);
+        infoStream.WriteTaskCompleted($"Task '{Name}' was disposed.");
+        
         completeCompletionSource.SetResult(0);
+        TaskDisposed?.Invoke(this, EventArgs.Empty);
     }
 
-    public virtual IScheduledTask Signal()
+    /// <inheritdoc />
+    public virtual void Pause()
     {
+        CheckDisposed();
+
+        paused = true;
+        infoStream.WriteDebug($"Task '{Name}' was paused.");
+    }
+
+    /// <inheritdoc />
+    public virtual void Resume()
+    {
+        CheckDisposed();
+        
+        paused = false;
+        lock (padlock)
+        {
+            if (!executing && trigger.TryGetNext(false, out TimeSpan value))
+                RegisterWait(value);
+        }
+        infoStream.WriteDebug($"Task '{Name}' was resumed.");
+    }
+
+    /// <inheritdoc />
+    public virtual void PauseFor(TimeSpan period)
+    {
+        CheckDisposed();
+        Pause();
+        pool.RegisterWaitForSingleObject(new AutoResetEvent(false), (_, _) => Resume(), null, period, true);
+        infoStream.WriteDebug($"Task '{Name}' will resume in {period}.");
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<bool> Signal(bool ignoreIfAlreadyExecution = false)
+    {
+        CheckDisposed();
+        TaskCompletionSource<bool> currentSource = executionCompletionSource;
+        if (executing)
+        {
+            if (ignoreIfAlreadyExecution)
+                return await currentSource.Task.ConfigureAwait(false);
+
+            await currentSource.Task.ConfigureAwait(false);
+        }
+
+        if (currentSource != null)
+            return await currentSource.Task.ConfigureAwait(false);
+
+        executionCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
         handle.Set();
-        return this;
+        return await executionCompletionSource.Task.ConfigureAwait(false);
     }
 
-    public IScheduledTask Signal(TimeSpan delay)
+    private void CheckDisposed()
     {
-        pool.RegisterWaitForSingleObject(new AutoResetEvent(false), (_, _) => Signal(), null, delay, true);
-        return this;
+        if (Disposed) throw new ObjectDisposedException($"Task '{Name}' was disposed.");
+    }
+
+    private void FinalizeCompletionSource(bool result)
+    {
+        TaskCompletionSource<bool> currentSource = executionCompletionSource;
+        executionCompletionSource = null;
+        currentSource.TrySetResult(result);
     }
 }
 
@@ -146,8 +251,8 @@ internal static class TaskExt
     }
     public static Func<T, Task> ToAsync<T>(this Action<T> action)
     {
-#pragma warning disable CS1998
+        #pragma warning disable CS1998
         return async arg => action(arg);
-#pragma warning restore CS1998
+        #pragma warning restore CS1998
     }
 }

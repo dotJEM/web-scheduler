@@ -23,7 +23,8 @@ public class WebTaskScheduler : IWebTaskScheduler
             subscription.Dispose();
         };
 
-        return task.Start();
+        task.Start();
+        return task;
     }
 
     public void Stop()
