@@ -5,15 +5,6 @@ using NUnit.Framework;
 
 namespace DotJEM.Web.Scheduler.Test;
 
-public class WebTaskSchedulerTest
-{
-    [Test]
-    public void SayHello_ReturnsHello()
-    {
- 
-    }
-}
-
 public class ScheduledTaskTest
 {
     [Test]
@@ -61,18 +52,5 @@ public class ScheduledTaskTest
             task.Signal(true));
 
         Assert.That(executed, Is.EqualTo(1));
-    }
-}
-internal static class TaskExt
-{
-    public static void FireAndForget(this Task task)
-    {
-
-    }
-    public static Func<T, Task> ToAsync<T>(this Action<T> action)
-    {
-#pragma warning disable CS1998
-        return async arg => action(arg);
-#pragma warning restore CS1998
     }
 }

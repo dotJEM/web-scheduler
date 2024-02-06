@@ -71,5 +71,5 @@ public interface IScheduledTask : IDisposable
     /// 
     /// </summary>
     /// <returns></returns>
-    TaskAwaiter<int> GetAwaiter();
+    Task<int> WhenCompleted();
 }

@@ -94,9 +94,11 @@ public class ScheduledTask : Disposable, IScheduledTask
         }
     }
 
-    /// <summary>Gets an awaiter used to await this <see cref="ScheduledTask" />, the task is signaled when the task runs to completion and is disposed.</summary>
-    /// <returns>An awaiter instance.</returns>
-    public TaskAwaiter<int> GetAwaiter() => completeCompletionSource.Task.GetAwaiter();
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <returns></returns>
+    public Task<int> WhenCompleted() => completeCompletionSource.Task;
 
     /// <summary>
     /// Registers the next call for the scheduled task onto the threadpool.
