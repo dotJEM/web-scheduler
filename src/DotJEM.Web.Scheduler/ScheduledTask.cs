@@ -9,6 +9,14 @@ using DotJEM.Web.Scheduler.Triggers;
 
 namespace DotJEM.Web.Scheduler;
 
+public enum Foo
+{
+    None =  0b_0000_0000,
+    Red =   0b_0000_0010,
+    Green = 0b_0000_0100,
+    Blue =  0b_0000_1000,
+}
+
 public class ScheduledTask : Disposable, IScheduledTask
 {
     public event EventHandler<EventArgs> TaskDisposed;
