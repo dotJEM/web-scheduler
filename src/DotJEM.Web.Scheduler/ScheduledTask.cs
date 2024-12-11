@@ -177,13 +177,14 @@ public class ScheduledTask : Disposable, IScheduledTask
         if (Disposed)
             return;
 
-        base.Dispose(disposing);
-        nativeWaitHandle?.Unregister(null);
-        //Signal().FireAndForget();
+        //Ideally we should wait if the task is currently executing, but this is a SyncDispose so.
+        //if (executing) !!AWAIT -> executionCompletionSource.Task.Wait(); but this is SYNC vs ASYNC :S.
 
+        nativeWaitHandle?.Unregister(null);
         infoStream.WriteTaskCompleted($"Task '{Name}' was disposed.");
         completeCompletionSource.SetResult(0);
         TaskDisposed?.Invoke(this, EventArgs.Empty);
+        base.Dispose(disposing);
     }
 
     /// <inheritdoc />
@@ -262,10 +263,9 @@ public class ScheduledTask : Disposable, IScheduledTask
 
 internal static class TaskExt
 {
-    public static void FireAndForget(this Task task)
-    {
+    public static void FireAndForget(this Task task) { }
 
-    }
+
     public static Func<T, Task> ToAsync<T>(this Action<T> action)
     {
         #pragma warning disable CS1998
