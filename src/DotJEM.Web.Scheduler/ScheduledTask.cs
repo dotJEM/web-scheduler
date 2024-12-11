@@ -15,6 +15,9 @@ namespace DotJEM.Web.Scheduler;
 public class ScheduledTask : Disposable, IScheduledTask
 {
     public event EventHandler<EventArgs> TaskDisposed;
+    
+    private static readonly TimeSpan MAX_WAIT = TimeSpan.FromMilliseconds(int.MaxValue);
+    
 
     private readonly object padlock = new();
     private readonly Func<bool,Task> asyncCallback;
@@ -24,12 +27,12 @@ public class ScheduledTask : Disposable, IScheduledTask
     private readonly ITrigger trigger;
     private readonly IInfoStream<ScheduledTask> infoStream = new InfoStream<ScheduledTask>();
     private readonly TaskCompletionSource<int> completeCompletionSource;
-
     private TaskCompletionSource<bool> executionCompletionSource;
     private RegisteredWaitHandle nativeWaitHandle;
     private bool started = false;
     private bool paused = false;
     private bool executing = false;
+    private bool signal = false;
 
     /// <inheritdoc />
     public IInfoStream InfoStream => infoStream;
@@ -112,6 +115,11 @@ public class ScheduledTask : Disposable, IScheduledTask
     {
         if (Disposed)
             return this;
+
+        if (timeout > MAX_WAIT)
+        {
+            
+        }
 
         infoStream.WriteDebug($"Registering next execution for task {Name}.");
         nativeWaitHandle = pool.RegisterWaitForSingleObject(handle, (_, didTimeOut) => ExecuteCallback(didTimeOut).FireAndForget(), null, timeout, true);
@@ -215,17 +223,20 @@ public class ScheduledTask : Disposable, IScheduledTask
     public virtual async Task<bool> Signal(bool ignoreIfAlreadyExecution = false)
     {
         CheckDisposed();
-        TaskCompletionSource<bool> currentSource = executionCompletionSource;
-        if (executing)
-        {
-            if (ignoreIfAlreadyExecution)
-                return await currentSource.Task.ConfigureAwait(false);
 
-            await currentSource.Task.ConfigureAwait(false);
+        TaskCompletionSource<bool> currentSource = executionCompletionSource;
+        if (executing && ignoreIfAlreadyExecution) 
+            return await currentSource.Task.ConfigureAwait(false);
+
+        if (signal)
+        {
+            if (currentSource != null)
+                return await currentSource.Task.ConfigureAwait(false);
+            return true;
         }
 
         if (currentSource != null)
-            return await currentSource.Task.ConfigureAwait(false);
+            await currentSource.Task.ConfigureAwait(false);
 
         executionCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
         handle.Set();
@@ -234,7 +245,12 @@ public class ScheduledTask : Disposable, IScheduledTask
 
     private void CheckDisposed()
     {
-        if (Disposed) throw new ObjectDisposedException($"Task '{Name}' was disposed.");
+        if (!Disposed)
+            return;
+        
+        ObjectDisposedException ex = new ($"Task '{Name}' was disposed.");
+        infoStream.WriteError(ex);
+        throw ex;
     }
 
     private void FinalizeCompletionSource(bool result)
