@@ -179,10 +179,9 @@ public class ScheduledTask : Disposable, IScheduledTask
 
         base.Dispose(disposing);
         nativeWaitHandle?.Unregister(null);
-        Signal().FireAndForget();
+        //Signal().FireAndForget();
 
         infoStream.WriteTaskCompleted($"Task '{Name}' was disposed.");
-        
         completeCompletionSource.SetResult(0);
         TaskDisposed?.Invoke(this, EventArgs.Empty);
     }
