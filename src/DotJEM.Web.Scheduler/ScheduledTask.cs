@@ -56,7 +56,6 @@ public class ScheduledTask : Disposable, IScheduledTask
         {
             lock (padlock)
             {
-                executionCompletionSource?.TrySetResult(true);
                 executionCompletionSource = value;
             }
         }
