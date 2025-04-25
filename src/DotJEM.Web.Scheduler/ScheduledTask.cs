@@ -43,24 +43,6 @@ public class ScheduledTask : Disposable, IScheduledTask
     /// <inheritdoc />
     public string Name { get; }
 
-    private TaskCompletionSource<bool> ExecutionCompletionSource
-    {
-        get
-        {
-            lock (padlock)
-            {
-                return executionCompletionSource;
-            }
-        }
-        set
-        {
-            lock (padlock)
-            {
-                executionCompletionSource = value;
-            }
-        }
-    }
-
     /// <summary>
     /// Creates a new task with a given name, async target and trigger.
     /// </summary>
@@ -149,13 +131,13 @@ public class ScheduledTask : Disposable, IScheduledTask
         if (Disposed)
             return;
 
+        if (paused)
+            return;
+
+        TaskCompletionSource<bool> execution = executionCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (padlock)
         {
-            if (paused)
-                return;
-
             executing = true;
-            ExecutionCompletionSource ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
             signal.Set();
         }
 
@@ -180,7 +162,7 @@ public class ScheduledTask : Disposable, IScheduledTask
             lock (padlock)
             {
                 executing = false;
-                FinalizeCompletionSource(success);
+                execution.TrySetResult(success);
             }
         }
     }
@@ -241,16 +223,16 @@ public class ScheduledTask : Disposable, IScheduledTask
             return await StartNew();
         
         if (ignoreIfAlreadyExecution) 
-            return await ExecutionCompletionSource.Task.ConfigureAwait(false);
+            return await executionCompletionSource.Task.ConfigureAwait(false);
 
-        await ExecutionCompletionSource.Task.ConfigureAwait(false);
+        await executionCompletionSource.Task.ConfigureAwait(false);
         return await StartNew();
 
         Task<bool> StartNew()
         {
             handle.Set();
             signal.WaitOne();
-            return ExecutionCompletionSource.Task;
+            return executionCompletionSource.Task;
         }
     }
 
@@ -262,13 +244,6 @@ public class ScheduledTask : Disposable, IScheduledTask
         ObjectDisposedException ex = new ($"Task '{Name}' was disposed.");
         infoStream.WriteError(ex);
         throw ex;
-    }
-
-    private void FinalizeCompletionSource(bool result)
-    {
-        TaskCompletionSource<bool> currentSource = ExecutionCompletionSource;
-        //ExecutionCompletionSource = null;
-        currentSource.TrySetResult(result);
     }
 }
 
