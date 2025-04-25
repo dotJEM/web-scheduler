@@ -76,4 +76,28 @@ public class ScheduledTaskTest
 
         Assert.That(executed, Is.EqualTo(2));
     }
+
+    [Test]
+    public async Task ExecutesAndRetriggersOnce()
+    {
+        AutoResetEvent waitForStart = new AutoResetEvent(false);
+        int executed = 0;
+        IScheduledTask task = new ScheduledTask("Test Task", async b =>
+        {
+            executed++;
+            waitForStart.Set();
+            await Task.Delay(100);
+        }, new ThreadPoolProxy(), new PeriodicTrigger(100.Seconds()));
+
+        task.Start();
+
+        Task first = task.Signal();
+        waitForStart.WaitOne();
+        Task second = task.Signal();
+        Task third = task.Signal();
+
+        await Task.WhenAll(first, second, third);
+
+        Assert.That(executed, Is.EqualTo(2));
+    }
 }

@@ -46,7 +46,6 @@ public interface IScheduledTask : IDisposable
     /// <returns>A Task that is signaled when the next execution is completed.</returns>
     Task<bool> Signal(bool ignoreIfAlreadyExecution = false);
 
-
     /// <summary>
     /// Pauses the task until resume is called.
     /// </summary>

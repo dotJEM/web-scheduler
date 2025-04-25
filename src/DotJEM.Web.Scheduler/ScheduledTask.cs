@@ -29,10 +29,12 @@ public class ScheduledTask : Disposable, IScheduledTask
     private readonly IInfoStream<ScheduledTask> infoStream = new InfoStream<ScheduledTask>();
     private readonly TaskCompletionSource<int> completeCompletionSource;
     private TaskCompletionSource<bool> executionCompletionSource;
+    private TaskCompletionSource<bool> waitingCompletionSource;
     private RegisteredWaitHandle nativeWaitHandle;
     private bool started = false;
     private bool paused = false;
     private bool executing = false;
+    private bool waiting = false;
 
     /// <inheritdoc />
     public IInfoStream InfoStream => infoStream;
@@ -134,9 +136,10 @@ public class ScheduledTask : Disposable, IScheduledTask
         if (paused)
             return;
 
-        TaskCompletionSource<bool> execution = executionCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<bool> execution = executionCompletionSource = waitingCompletionSource ?? new(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (padlock)
         {
+            waitingCompletionSource = null;
             executing = true;
             signal.Set();
         }
@@ -225,6 +228,11 @@ public class ScheduledTask : Disposable, IScheduledTask
         if (ignoreIfAlreadyExecution) 
             return await executionCompletionSource.Task.ConfigureAwait(false);
 
+        if (waiting)
+            return await waitingCompletionSource.Task;
+
+        waiting = true;
+        waitingCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
         await executionCompletionSource.Task.ConfigureAwait(false);
         return await StartNew();
 
