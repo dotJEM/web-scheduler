@@ -22,6 +22,7 @@ public class ScheduledTask : Disposable, IScheduledTask
     private readonly object padlock = new();
     private readonly Func<bool,Task> asyncCallback;
     private readonly AutoResetEvent handle = new(false);
+    private readonly AutoResetEvent signal = new(false);
     private readonly ActivitySource activitySource;
     private readonly IThreadPool pool;
     private readonly ITrigger trigger;
@@ -32,7 +33,6 @@ public class ScheduledTask : Disposable, IScheduledTask
     private bool started = false;
     private bool paused = false;
     private bool executing = false;
-    private bool signal = false;
 
     /// <inheritdoc />
     public IInfoStream InfoStream => infoStream;
@@ -42,6 +42,25 @@ public class ScheduledTask : Disposable, IScheduledTask
 
     /// <inheritdoc />
     public string Name { get; }
+
+    private TaskCompletionSource<bool> ExecutionCompletionSource
+    {
+        get
+        {
+            lock (padlock)
+            {
+                return executionCompletionSource;
+            }
+        }
+        set
+        {
+            lock (padlock)
+            {
+                executionCompletionSource?.TrySetResult(true);
+                executionCompletionSource = value;
+            }
+        }
+    }
 
     /// <summary>
     /// Creates a new task with a given name, async target and trigger.
@@ -78,7 +97,7 @@ public class ScheduledTask : Disposable, IScheduledTask
         this.pool = pool;
         this.trigger = trigger;
     }
-
+    
     /// <inheritdoc />
     public void Start()
     {
@@ -116,11 +135,6 @@ public class ScheduledTask : Disposable, IScheduledTask
         if (Disposed)
             return this;
 
-        if (timeout > MAX_WAIT)
-        {
-            
-        }
-
         infoStream.WriteDebug($"Registering next execution for task {Name}.");
         nativeWaitHandle = pool.RegisterWaitForSingleObject(handle, (_, didTimeOut) => ExecuteCallback(didTimeOut).FireAndForget(), null, timeout, true);
         return this;
@@ -142,7 +156,8 @@ public class ScheduledTask : Disposable, IScheduledTask
                 return;
 
             executing = true;
-            executionCompletionSource ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
+            ExecutionCompletionSource ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
+            signal.Set();
         }
 
         bool success = true;
@@ -223,24 +238,21 @@ public class ScheduledTask : Disposable, IScheduledTask
     public virtual async Task<bool> Signal(bool ignoreIfAlreadyExecution = false)
     {
         CheckDisposed();
+        if (!executing)
+            return await StartNew();
+        
+        if (ignoreIfAlreadyExecution) 
+            return await ExecutionCompletionSource.Task.ConfigureAwait(false);
 
-        TaskCompletionSource<bool> currentSource = executionCompletionSource;
-        if (executing && ignoreIfAlreadyExecution) 
-            return await currentSource.Task.ConfigureAwait(false);
+        await ExecutionCompletionSource.Task.ConfigureAwait(false);
+        return await StartNew();
 
-        if (signal)
+        Task<bool> StartNew()
         {
-            if (currentSource != null)
-                return await currentSource.Task.ConfigureAwait(false);
-            return true;
+            handle.Set();
+            signal.WaitOne();
+            return ExecutionCompletionSource.Task;
         }
-
-        if (currentSource != null)
-            await currentSource.Task.ConfigureAwait(false);
-
-        executionCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        handle.Set();
-        return await executionCompletionSource.Task.ConfigureAwait(false);
     }
 
     private void CheckDisposed()
@@ -255,8 +267,8 @@ public class ScheduledTask : Disposable, IScheduledTask
 
     private void FinalizeCompletionSource(bool result)
     {
-        TaskCompletionSource<bool> currentSource = executionCompletionSource;
-        executionCompletionSource = null;
+        TaskCompletionSource<bool> currentSource = ExecutionCompletionSource;
+        //ExecutionCompletionSource = null;
         currentSource.TrySetResult(result);
     }
 }
