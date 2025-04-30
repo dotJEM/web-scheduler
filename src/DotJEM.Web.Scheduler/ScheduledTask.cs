@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -9,14 +10,23 @@ using DotJEM.Web.Scheduler.Triggers;
 
 namespace DotJEM.Web.Scheduler;
 
+public class InvalidScheduledTaskStateException : Exception
+{
+    public InvalidScheduledTaskStateException()
+    {
+    }
+
+    public InvalidScheduledTaskStateException(string message) : base(message)
+    {
+    }
+}
+
 /// <summary>
 /// Represents a unit of work that can be scheduled.
 /// </summary>
 public class ScheduledTask : Disposable, IScheduledTask
 {
     public event EventHandler<EventArgs> TaskDisposed;
-    
-    private static readonly TimeSpan MAX_WAIT = TimeSpan.FromMilliseconds(int.MaxValue);
     
 
     private readonly object padlock = new();
@@ -140,6 +150,7 @@ public class ScheduledTask : Disposable, IScheduledTask
         lock (padlock)
         {
             waitingCompletionSource = null;
+            waiting = false;
             executing = true;
             signal.Set();
         }
@@ -182,6 +193,7 @@ public class ScheduledTask : Disposable, IScheduledTask
         nativeWaitHandle?.Unregister(null);
         infoStream.WriteTaskCompleted($"Task '{Name}' was disposed.");
         completeCompletionSource.SetResult(0);
+        waitingCompletionSource?.SetResult(false);
         TaskDisposed?.Invoke(this, EventArgs.Empty);
         base.Dispose(disposing);
     }
@@ -224,15 +236,28 @@ public class ScheduledTask : Disposable, IScheduledTask
         CheckDisposed();
         if (!executing)
             return await StartNew();
-        
-        if (ignoreIfAlreadyExecution) 
+
+        if (ignoreIfAlreadyExecution)
+        {
+            if (executionCompletionSource is null)
+                throw new InvalidScheduledTaskStateException("executionCompletionSource was null when attempting to await existing execution.");
             return await executionCompletionSource.Task.ConfigureAwait(false);
+        }
 
         if (waiting)
+        {
+            if (waitingCompletionSource is null)
+                throw new InvalidScheduledTaskStateException("waitingCompletionSource was null when attempting to await queued execution.");
             return await waitingCompletionSource.Task;
+        }
 
-        waiting = true;
-        waitingCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (padlock)
+        {
+            waiting = true;
+            waitingCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+        if (executionCompletionSource is null)
+            throw new InvalidScheduledTaskStateException("executionCompletionSource was null when attempting to wait for existing completion before starting queued completion.");
         await executionCompletionSource.Task.ConfigureAwait(false);
         return await StartNew();
 
@@ -240,6 +265,8 @@ public class ScheduledTask : Disposable, IScheduledTask
         {
             handle.Set();
             signal.WaitOne();
+            if (executionCompletionSource is null)
+                throw new InvalidScheduledTaskStateException("executionCompletionSource was null  when attempting to start new execution.");
             return executionCompletionSource.Task;
         }
     }
