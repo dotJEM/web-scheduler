@@ -44,7 +44,6 @@ public class ScheduledTask : Disposable, IScheduledTask
     private bool started = false;
     private bool paused = false;
     private bool executing = false;
-    private bool waiting = false;
 
     /// <inheritdoc />
     public IInfoStream InfoStream => infoStream;
@@ -150,7 +149,6 @@ public class ScheduledTask : Disposable, IScheduledTask
         lock (padlock)
         {
             waitingCompletionSource = null;
-            waiting = false;
             executing = true;
             signal.Set();
         }
@@ -244,18 +242,14 @@ public class ScheduledTask : Disposable, IScheduledTask
             return await executionCompletionSource.Task.ConfigureAwait(false);
         }
 
-        if (waiting)
-        {
-            if (waitingCompletionSource is null)
-                throw new InvalidScheduledTaskStateException("waitingCompletionSource was null when attempting to await queued execution.");
+        if (waitingCompletionSource is not null)
             return await waitingCompletionSource.Task;
-        }
 
         lock (padlock)
         {
-            waiting = true;
             waitingCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
+
         if (executionCompletionSource is null)
             throw new InvalidScheduledTaskStateException("executionCompletionSource was null when attempting to wait for existing completion before starting queued completion.");
         await executionCompletionSource.Task.ConfigureAwait(false);
